@@ -12,20 +12,25 @@ Animations:
     names in ANIMATIONS below. Any that are missing fall back to an emoji,
     so the card works even before you add them.
 
-RSVP emails:
-    RSVPs are sent via Brevo's free transactional-email API (no Gmail App
-    Password, no SMTP, no domain needed -- 300 emails/day free). Setup:
-      1. Sign up free at https://www.brevo.com
-      2. Settings -> Senders, Domains & Dedicated IPs -> Senders -> add
-         the address you want emails to come FROM, and verify it with the
-         6-digit code Brevo emails to that address (no domain required).
-      3. Settings -> SMTP & API -> API Keys -> generate a new key.
-      4. In Streamlit Community Cloud, App settings -> Secrets, add:
-            brevo_api_key = "xkeysib-..."
-            brevo_sender_email = "the address you verified in step 2"
-    .streamlit/secrets.toml is gitignored so none of this reaches the
-    (public) repo. Until secrets are set, RSVPs still show a friendly
-    confirmation to the guest, they just aren't emailed.
+RSVP notifications:
+    No email service at all -- RSVPs push a notification to the host via
+    ntfy.sh (https://ntfy.sh), a free notification service with no signup,
+    no account, no API key. A "topic" is just a name you make up; anyone
+    who knows it can publish or subscribe to it, so it acts like a shared
+    password -- pick something long and random, not "sebastian-birthday".
+    Setup:
+      1. Make up a topic name, e.g. sebastian-rsvp-7f3ac91e2b.
+      2. Install the ntfy app (iOS/Android) or open https://ntfy.sh/app in
+         a browser, and subscribe to that exact topic name.
+      3. In Streamlit Community Cloud, App settings -> Secrets, add:
+            ntfy_topic = "sebastian-rsvp-7f3ac91e2b"
+    .streamlit/secrets.toml is gitignored so this never reaches the
+    (public) repo. Until the secret is set, RSVPs are still collected and
+    the guest still sees the full confirmation on screen -- the host just
+    won't get pushed a notification.
+
+    Guests never need an email: the party date/time/address and a Google
+    Maps link are shown directly in the app right after they submit.
 """
 
 import json
@@ -51,7 +56,6 @@ PARTY_TIME = "1:00 PM - 3:00 PM"
 PARTY_LOCATION = "157 Olympic Drive, Stafford, VA 22554"
 PARTY_MAPS_URL = "https://www.google.com/maps/search/?api=1&query=" + PARTY_LOCATION.replace(" ", "+")
 RSVP_BY = date(2026, 11, 8)        # ask guests to respond by this date
-RSVP_TO_EMAIL = "ledererkristoph@gmail.com"
 
 # file name -> (optional URL fallback, emoji fallback)
 ANIMATIONS = {
@@ -170,77 +174,35 @@ def ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-def _brevo_send(to_email: str, subject: str, body: str, html: bool = False) -> tuple[bool, str]:
-    """Send one email via Brevo's transactional-email HTTP API.
+def notify_host(name: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
+    """Push one RSVP to the host via ntfy.sh. No account/email anywhere --
+    just a shared, hard-to-guess topic name (see the module docstring).
 
     Returns (sent, status) where status is "ok", "not_configured" (no
-    secrets set yet -- not an error, just not wired up), or an error
+    secret set yet -- not an error, just not wired up), or an error
     message string.
     """
-    api_key = st.secrets.get("brevo_api_key")
-    sender_email = st.secrets.get("brevo_sender_email")
-    if not api_key or not sender_email:
+    topic = st.secrets.get("ntfy_topic")
+    if not topic:
         return False, "not_configured"
 
-    payload = {
-        "sender": {"email": sender_email},
-        "to": [{"email": to_email}],
-        "subject": subject,
-        ("htmlContent" if html else "textContent"): body,
-    }
+    body = (
+        f"{attending}\n"
+        f"Guests: {guest_count}\n"
+        f"Notes: {notes or '-'}"
+    )
     try:
         r = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            headers={
-                "api-key": api_key,
-                "accept": "application/json",
-                "content-type": "application/json",
-            },
-            json=payload,
+            f"https://ntfy.sh/{topic}",
+            data=body.encode("utf-8"),
+            headers={"Title": f"RSVP: {name}", "Tags": "tada,birthday"},
             timeout=10,
         )
-        if r.status_code in (200, 201):
+        if r.status_code == 200:
             return True, "ok"
-        return False, f"Brevo {r.status_code}: {r.text[:200]}"
+        return False, f"ntfy {r.status_code}: {r.text[:200]}"
     except requests.RequestException as exc:
         return False, str(exc)
-
-
-def send_rsvp_email(name: str, email: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
-    """Notify the host (RSVP_TO_EMAIL) of one RSVP. See _brevo_send for the
-    (sent, status) return shape."""
-    body = (
-        f"RSVP for {CHILD_NAME}'s {ordinal(AGE)} birthday party\n\n"
-        f"Name: {name}\n"
-        f"Email: {email or '-'}\n"
-        f"Attending: {attending}\n"
-        f"Total guests (incl. themselves): {guest_count}\n"
-        f"Notes: {notes or '-'}\n"
-    )
-    return _brevo_send(RSVP_TO_EMAIL, f"RSVP from {name} -- {CHILD_NAME}'s birthday", body)
-
-
-def send_guest_confirmation(guest_email: str, name: str, attending: str) -> tuple[bool, str]:
-    """Confirmation back to the guest with the party details and a Google
-    Maps link, if they're attending."""
-    if "can't make it" in attending.lower():
-        body = (
-            f"<p>Hi {name},</p>"
-            f"<p>Thanks for letting us know -- we'll miss you at {CHILD_NAME}'s party, "
-            f"but we appreciate the RSVP!</p>"
-        )
-    else:
-        party_date_str = BIRTHDAY.strftime("%A, %B %d, %Y").replace(" 0", " ")
-        body = (
-            f"<p>Hi {name},</p>"
-            f"<p>Thanks for your RSVP to {CHILD_NAME}'s {ordinal(AGE)} birthday party! "
-            f"Here are the details:</p>"
-            f"<p>📅 {party_date_str}<br>"
-            f"🕒 {PARTY_TIME}<br>"
-            f"📍 <a href='{PARTY_MAPS_URL}'>{PARTY_LOCATION}</a></p>"
-            f"<p>See you there!</p>"
-        )
-    return _brevo_send(guest_email, f"RSVP confirmed -- {CHILD_NAME}'s birthday party", body, html=True)
 
 
 @st.dialog("RSVP 💌")
@@ -248,7 +210,6 @@ def rsvp_dialog():
     st.write(f"Let us know if you can make it to {CHILD_NAME}'s party!")
     with st.form("rsvp_form", clear_on_submit=False):
         name = st.text_input("Your name")
-        email = st.text_input("Your email (for a confirmation with directions)")
         attending = st.radio(
             "Will you be there?",
             ["Yes, can't wait! 🎉", "So sorry, can't make it", "Not sure yet"],
@@ -263,22 +224,22 @@ def rsvp_dialog():
         if not name.strip():
             st.error("Please enter your name.")
             return
-        name, email, notes = name.strip(), email.strip(), notes.strip()
+        name, notes = name.strip(), notes.strip()
 
-        sent, status = send_rsvp_email(name, email, attending, int(guest_count), notes)
-        if sent:
-            st.success("Thank you! Your RSVP is on its way to us. 🎈")
-        elif status == "not_configured":
-            st.info("Thanks, got it! (Email delivery isn't set up on this deployment yet.)")
-        else:
-            st.warning("Thanks! We saved your response, but couldn't email it just now -- please also text or call us.")
+        notify_host(name, attending, int(guest_count), notes)
+        st.success("Thank you! We've got your RSVP. 🎈")
 
-        if email:
-            conf_sent, conf_status = send_guest_confirmation(email, name, attending)
-            if conf_sent:
-                st.success("A confirmation with directions is on its way to your inbox. 📬")
-            elif conf_status != "not_configured":
-                st.caption("(Couldn't send you a confirmation email -- not a problem, we've still got your RSVP.)")
+        if "can't make it" not in attending.lower():
+            party_date_str = BIRTHDAY.strftime("%A, %B %d, %Y").replace(" 0", " ")
+            st.markdown(
+                f"""<div class='card' style='margin-top:1em;'>
+                See you here!<br><br>
+                📅 {party_date_str}<br>
+                🕒 {PARTY_TIME}<br>
+                📍 <a href='{PARTY_MAPS_URL}' target='_blank'>{PARTY_LOCATION}</a>
+                </div>""",
+                unsafe_allow_html=True,
+            )
 
 
 PHOTO_PATH = Path(__file__).parent / "photos" / "slide.jpg"
