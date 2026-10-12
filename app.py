@@ -46,27 +46,70 @@ st.set_page_config(page_title=f"Happy {AGE}nd Birthday!", page_icon="🎂", layo
 st.markdown(
     """
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;700&family=Poppins:wght@400;500;600&display=swap');
+
+    html, body, [class*="css"] { font-family: 'Poppins', sans-serif; }
+
     .stApp {
-        background: linear-gradient(180deg, #E3F2FD 0%, #FFF8E1 60%, #FCE4EC 100%);
+        background:
+            radial-gradient(circle at 15% 10%, rgba(255,202,40,0.25), transparent 45%),
+            radial-gradient(circle at 85% 15%, rgba(255,112,67,0.18), transparent 45%),
+            radial-gradient(circle at 50% 100%, rgba(171,71,188,0.15), transparent 50%),
+            linear-gradient(180deg, #EAF4FF 0%, #FBF6FF 55%, #FFF3F8 100%);
     }
+    .block-container { padding-top: 2.5rem; max-width: 640px; }
+
     .big-age {
-        font-size: 9rem; font-weight: 900; text-align: center; line-height: 1;
-        background: linear-gradient(90deg, #42A5F5, #AB47BC, #FF7043, #FFCA28);
+        font-family: 'Fredoka', sans-serif;
+        font-size: 8.5rem; font-weight: 700; text-align: center; line-height: 1;
+        background: linear-gradient(90deg, #4F8EF7, #B15CDE, #FF7A59, #FFC93C);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-        margin: 0;
+        margin: 0.1em 0 0;
+        filter: drop-shadow(0 6px 18px rgba(177,92,222,0.25));
     }
     .title {
-        font-size: 2.6rem; font-weight: 800; text-align: center;
-        color: #1E3A5F; margin-bottom: 0;
+        font-family: 'Fredoka', sans-serif;
+        font-size: 2.4rem; font-weight: 700; text-align: center;
+        color: #27314A; margin-bottom: 0; letter-spacing: -0.01em;
     }
-    .subtitle { text-align: center; font-size: 1.2rem; color: #5C6B7A; }
+    .subtitle {
+        text-align: center; font-size: 1.05rem; color: #6B7686;
+        letter-spacing: 0.02em; margin-top: 0.3em;
+    }
+    .hero-photo-wrap { display: flex; justify-content: center; margin: 1.6em 0; }
+    .hero-photo-wrap img {
+        width: min(78vw, 360px);
+        aspect-ratio: 3 / 4;
+        object-fit: cover;
+        border-radius: 28px;
+        box-shadow: 0 18px 40px -12px rgba(39,49,74,0.35), 0 0 0 6px #FFFFFF, 0 0 0 10px rgba(255,201,60,0.55);
+    }
     .card {
-        background: white; border-radius: 24px; padding: 28px 32px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.08);
-        font-size: 1.15rem; line-height: 1.7; color: #33475B; text-align: center;
+        background: rgba(255,255,255,0.72);
+        backdrop-filter: blur(10px);
+        border-radius: 26px; padding: 30px 34px;
+        box-shadow: 0 10px 30px rgba(39,49,74,0.1);
+        font-size: 1.12rem; line-height: 1.75; color: #33475B; text-align: center;
+        border: 1px solid rgba(255,255,255,0.6);
     }
-    .signoff { text-align: center; font-style: italic; color: #7E57C2; margin-top: 12px; }
+    .signoff {
+        text-align: center; font-style: italic; color: #B15CDE;
+        font-weight: 500; margin-top: 14px;
+    }
     .emoji-fallback { font-size: 6rem; text-align: center; }
+
+    .stButton > button {
+        font-family: 'Fredoka', sans-serif; font-weight: 700; font-size: 1.1rem;
+        border: none; border-radius: 999px; padding: 0.7em 1em;
+        background: linear-gradient(90deg, #4F8EF7, #B15CDE, #FF7A59);
+        color: white; box-shadow: 0 10px 24px -8px rgba(177,92,222,0.6);
+        transition: transform 150ms ease, box-shadow 150ms ease;
+    }
+    .stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 14px 28px -8px rgba(177,92,222,0.75);
+        color: white;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -106,10 +149,22 @@ def ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
+PHOTO_PATH = Path(__file__).parent / "photos" / "slide.jpg"
+
 # ---------- Header ----------
 show_animation("balloons", height=180)
 st.markdown(f"<p class='title'>Happy Birthday, {CHILD_NAME}!</p>", unsafe_allow_html=True)
 st.markdown(f"<p class='big-age'>{AGE}</p>", unsafe_allow_html=True)
+
+if PHOTO_PATH.exists():
+    import base64
+
+    encoded = base64.b64encode(PHOTO_PATH.read_bytes()).decode()
+    st.markdown(
+        f"<div class='hero-photo-wrap'><img src='data:image/jpeg;base64,{encoded}' /></div>",
+        unsafe_allow_html=True,
+    )
+
 st.markdown(
     f"<p class='subtitle'>Celebrating your {ordinal(AGE)} birthday · "
     f"{BIRTHDAY.strftime('%B %d, %Y').replace(' 0', ' ')}</p>",
@@ -150,20 +205,6 @@ with st.expander("🌟 Things we love about you at 2"):
         """
     )
     st.caption("Edit this list in app.py to make it yours.")
-
-# ---------- Photos ----------
-PHOTOS_DIR = Path(__file__).parent / "photos"
-
-with st.expander("📸 Photos from the year", expanded=True):
-    preloaded = sorted(PHOTOS_DIR.glob("*")) if PHOTOS_DIR.exists() else []
-    uploaded = st.file_uploader(
-        "Add more photos", type=["jpg", "jpeg", "png"], accept_multiple_files=True
-    )
-    all_photos = list(preloaded) + list(uploaded or [])
-    if all_photos:
-        cols = st.columns(3)
-        for i, photo in enumerate(all_photos):
-            cols[i % 3].image(photo, use_container_width=True)
 
 # ---------- Celebrate button ----------
 st.write("")
