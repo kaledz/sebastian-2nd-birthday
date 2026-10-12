@@ -23,16 +23,21 @@ RSVPs:
     deploy (pushing new code) wipes it. Fine for a one-off party page;
     don't rely on it as permanent storage.
 
-    Email notification via Brevo's free transactional-email API (300/day,
-    no domain needed, no Gmail/App Password) -- optional but recommended,
-    see https://www.brevo.com:
-      1. Sign up free, then Settings -> Senders, Domains & Dedicated IPs
-         -> Senders -> add the address you want these emails to come
-         FROM, and verify it with the 6-digit code Brevo emails there.
-      2. Settings -> SMTP & API -> API Keys -> generate a new key.
-      3. In Streamlit Community Cloud, App settings -> Secrets, add:
-            brevo_api_key = "xkeysib-..."
-            brevo_sender_email = "the address you verified in step 1"
+    Email notification via Gmail SMTP with an App Password -- optional but
+    recommended. An App Password is a 16-character code Google generates
+    for one app to use, separate from your real password -- it is NOT the
+    password you log into Gmail with.
+      1. Turn on 2-Step Verification if it isn't already on:
+         https://myaccount.google.com/security -> "2-Step Verification".
+         An App Password cannot be created without this turned on first.
+      2. Go to https://myaccount.google.com/apppasswords
+      3. Under "App name", type something like "birthday rsvp" and click
+         Create. Google shows a 16-character code in a yellow box, e.g.
+         "abcd efgh ijkl mnop" -- copy it now, it's shown only once.
+      4. In Streamlit Community Cloud, App settings -> Secrets, add
+         (straight quotes, spaces in the password are fine, keep them):
+            gmail_user = "the_gmail_address_sending_these@gmail.com"
+            gmail_app_password = "abcd efgh ijkl mnop"
             rsvp_to_email = "the address that should receive RSVPs"
     Leave these unset and RSVPs are still saved/viewable in-app, you just
     won't get emailed.
@@ -54,7 +59,9 @@ RSVPs:
 """
 
 import json
+import smtplib
 from datetime import date, datetime
+from email.mime.text import MIMEText
 from pathlib import Path
 
 import requests
@@ -231,16 +238,15 @@ def notify_host_push(name: str, attending: str, guest_count: int, notes: str) ->
 
 
 def notify_host_email(name: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
-    """Email one RSVP to the host via Brevo's free transactional-email API.
-    No Gmail/SMTP/App Password involved -- Brevo just needs a one-time-
-    verified sender address and an API key (see module docstring).
+    """Email one RSVP to the host via Gmail SMTP using an App Password
+    (see module docstring for how to generate one).
 
     Returns (sent, status) -- same shape as notify_host_push.
     """
-    api_key = st.secrets.get("brevo_api_key")
-    sender_email = st.secrets.get("brevo_sender_email")
+    gmail_user = st.secrets.get("gmail_user")
+    gmail_app_password = st.secrets.get("gmail_app_password")
     to_email = st.secrets.get("rsvp_to_email")
-    if not api_key or not sender_email or not to_email:
+    if not gmail_user or not gmail_app_password or not to_email:
         return False, "not_configured"
 
     body = (
@@ -250,27 +256,17 @@ def notify_host_email(name: str, attending: str, guest_count: int, notes: str) -
         f"Total guests (incl. themselves): {guest_count}\n"
         f"Notes: {notes or '-'}\n"
     )
-    payload = {
-        "sender": {"email": sender_email},
-        "to": [{"email": to_email}],
-        "subject": f"RSVP from {name} -- {CHILD_NAME}'s birthday",
-        "textContent": body,
-    }
+    msg = MIMEText(body)
+    msg["Subject"] = f"RSVP from {name} -- {CHILD_NAME}'s birthday"
+    msg["From"] = gmail_user
+    msg["To"] = to_email
+
     try:
-        r = requests.post(
-            "https://api.brevo.com/v3/smtp/email",
-            headers={
-                "api-key": api_key,
-                "accept": "application/json",
-                "content-type": "application/json",
-            },
-            json=payload,
-            timeout=10,
-        )
-        if r.status_code in (200, 201):
-            return True, "ok"
-        return False, f"Brevo {r.status_code}: {r.text[:200]}"
-    except requests.RequestException as exc:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(gmail_user, gmail_app_password)
+            server.sendmail(gmail_user, [to_email], msg.as_string())
+        return True, "ok"
+    except Exception as exc:  # noqa: BLE001 -- surface to the admin, not the guest
         return False, str(exc)
 
 
