@@ -7,7 +7,7 @@ Run:
 
 Animations:
     Download free Lottie JSON files from https://lottiefiles.com
-    (search "birthday cake", "balloons", "confetti", "teddy bear"),
+    (search "birthday cake", "confetti", "teddy bear", "airplane flying"),
     save them in an "animations" folder next to this file using the
     names in ANIMATIONS below. Any that are missing fall back to an emoji,
     so the card works even before you add them.
@@ -82,13 +82,13 @@ ADMIN_PASSCODE = "sebastian2"      # change to whatever you like -- see "View RS
 # file name -> (optional URL fallback, emoji fallback)
 ANIMATIONS = {
     "cake":     ("animations/cake.json",     "", "🎂"),
-    "balloons": ("animations/balloons.json", "", "🎈"),
     "confetti": ("animations/confetti.json", "", "🎉"),
     "teddy":    ("animations/teddy.json",    "", "🧸"),
+    "plane":    ("animations/plane.json",    "", "✈️"),
 }
 # --------------------------------------
 
-st.set_page_config(page_title=f"Happy {AGE}nd Birthday!", page_icon="🎂", layout="centered")
+st.set_page_config(page_title=f"Happy {AGE}nd Birthday!", page_icon="✈️", layout="centered")
 
 st.markdown(
     """
@@ -99,28 +99,30 @@ st.markdown(
 
     .stApp {
         background:
-            radial-gradient(circle at 15% 10%, rgba(255,202,40,0.25), transparent 45%),
-            radial-gradient(circle at 85% 15%, rgba(255,112,67,0.18), transparent 45%),
-            radial-gradient(circle at 50% 100%, rgba(171,71,188,0.15), transparent 50%),
-            linear-gradient(180deg, #EAF4FF 0%, #FBF6FF 55%, #FFF3F8 100%);
+            radial-gradient(ellipse 220px 90px at 12% 14%, rgba(255,255,255,0.9), transparent 70%),
+            radial-gradient(ellipse 160px 70px at 22% 10%, rgba(255,255,255,0.8), transparent 70%),
+            radial-gradient(ellipse 240px 100px at 82% 20%, rgba(255,255,255,0.85), transparent 70%),
+            radial-gradient(ellipse 170px 75px at 90% 15%, rgba(255,255,255,0.75), transparent 70%),
+            radial-gradient(ellipse 200px 85px at 65% 92%, rgba(255,255,255,0.5), transparent 70%),
+            linear-gradient(180deg, #BFE1FA 0%, #E3F2FD 45%, #F7FBFF 100%);
     }
     .block-container { padding-top: 2.5rem; max-width: 640px; }
 
     .big-age {
         font-family: 'Fredoka', sans-serif;
         font-size: 8.5rem; font-weight: 700; text-align: center; line-height: 1;
-        background: linear-gradient(90deg, #4F8EF7, #B15CDE, #FF7A59, #FFC93C);
+        background: linear-gradient(90deg, #1B5FA8, #2E86D1, #5CA8E0, #E8544A);
         -webkit-background-clip: text; -webkit-text-fill-color: transparent;
         margin: 0.1em 0 0;
-        filter: drop-shadow(0 6px 18px rgba(177,92,222,0.25));
+        filter: drop-shadow(0 6px 18px rgba(27,95,168,0.25));
     }
     .title {
         font-family: 'Fredoka', sans-serif;
         font-size: 2.4rem; font-weight: 700; text-align: center;
-        color: #27314A; margin-bottom: 0; letter-spacing: -0.01em;
+        color: #163A5F; margin-bottom: 0; letter-spacing: -0.01em;
     }
     .subtitle {
-        text-align: center; font-size: 1.05rem; color: #6B7686;
+        text-align: center; font-size: 1.05rem; color: #4F7294;
         letter-spacing: 0.02em; margin-top: 0.3em;
     }
     .hero-photo-wrap { display: flex; justify-content: center; margin: 1.6em 0; }
@@ -129,18 +131,19 @@ st.markdown(
         aspect-ratio: 3 / 4;
         object-fit: cover;
         border-radius: 28px;
-        box-shadow: 0 18px 40px -12px rgba(39,49,74,0.35), 0 0 0 6px #FFFFFF, 0 0 0 10px rgba(255,201,60,0.55);
+        box-shadow: 0 18px 40px -12px rgba(22,58,95,0.35), 0 0 0 6px #FFFFFF, 0 0 0 10px rgba(46,134,209,0.55);
     }
     .card {
-        background: rgba(255,255,255,0.72);
+        background: rgba(255,255,255,0.78);
         backdrop-filter: blur(10px);
         border-radius: 26px; padding: 30px 34px;
-        box-shadow: 0 10px 30px rgba(39,49,74,0.1);
-        font-size: 1.12rem; line-height: 1.75; color: #33475B; text-align: center;
+        box-shadow: 0 10px 30px rgba(22,58,95,0.12);
+        font-size: 1.12rem; line-height: 1.75; color: #27476B; text-align: center;
         border: 1px solid rgba(255,255,255,0.6);
     }
+    .card a { color: #E8544A; font-weight: 600; }
     .signoff {
-        text-align: center; font-style: italic; color: #B15CDE;
+        text-align: center; font-style: italic; color: #2E86D1;
         font-weight: 500; margin-top: 14px;
     }
     .emoji-fallback { font-size: 6rem; text-align: center; }
@@ -148,13 +151,13 @@ st.markdown(
     .stButton > button {
         font-family: 'Fredoka', sans-serif; font-weight: 700; font-size: 1.1rem;
         border: none; border-radius: 999px; padding: 0.7em 1em;
-        background: linear-gradient(90deg, #4F8EF7, #B15CDE, #FF7A59);
-        color: white; box-shadow: 0 10px 24px -8px rgba(177,92,222,0.6);
+        background: linear-gradient(90deg, #1B5FA8, #2E86D1, #E8544A);
+        color: white; box-shadow: 0 10px 24px -8px rgba(27,95,168,0.6);
         transition: transform 150ms ease, box-shadow 150ms ease;
     }
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 14px 28px -8px rgba(177,92,222,0.75);
+        box-shadow: 0 14px 28px -8px rgba(27,95,168,0.75);
         color: white;
     }
     </style>
@@ -336,7 +339,7 @@ def rsvp_dialog():
 PHOTO_PATH = Path(__file__).parent / "photos" / "slide.jpg"
 
 # ---------- Header ----------
-show_animation("balloons", height=180)
+show_animation("plane", height=180)
 st.markdown(f"<p class='title'>Happy Birthday, {CHILD_NAME}!</p>", unsafe_allow_html=True)
 st.markdown(f"<p class='big-age'>{AGE}</p>", unsafe_allow_html=True)
 
@@ -350,7 +353,7 @@ if PHOTO_PATH.exists():
     )
 
 st.markdown(
-    f"<p class='subtitle'>You're invited to celebrate his {ordinal(AGE)} birthday!</p>",
+    f"<p class='subtitle'>✈️ You're invited to celebrate his {ordinal(AGE)} birthday! ✈️</p>",
     unsafe_allow_html=True,
 )
 
@@ -369,7 +372,7 @@ st.write("")
 
 c1, c2, c3 = st.columns([1, 2, 1])
 with c2:
-    if st.button("💌 RSVP Now", use_container_width=True):
+    if st.button("✈️ RSVP Now", use_container_width=True):
         rsvp_dialog()
 st.markdown(
     f"<p class='subtitle' style='font-size:0.9rem; margin-top:0.5em;'>"
@@ -381,7 +384,7 @@ st.markdown(
 today = date.today()
 days_left = (BIRTHDAY - today).days
 if days_left > 0:
-    st.info(f"⏳ **{days_left} day{'s' if days_left != 1 else ''}** until the big day!")
+    st.info(f"✈️ **{days_left} day{'s' if days_left != 1 else ''}** until takeoff!")
 elif days_left == 0:
     st.success("🎉 **Today's the day!** Happy Birthday! 🎉")
     st.balloons()
