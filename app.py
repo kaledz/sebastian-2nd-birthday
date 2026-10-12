@@ -1,5 +1,5 @@
 """
-Birthday card for a 2-year-old, built with Streamlit + Lottie.
+Birthday party invitation for a 2-year-old, built with Streamlit + Lottie.
 
 Run:
     pip install -r requirements.txt
@@ -11,10 +11,24 @@ Animations:
     save them in an "animations" folder next to this file using the
     names in ANIMATIONS below. Any that are missing fall back to an emoji,
     so the card works even before you add them.
+
+RSVP emails:
+    RSVPs are sent by Gmail SMTP using an App Password, read from Streamlit
+    secrets -- never hardcode it here, and .streamlit/secrets.toml is
+    gitignored so it never reaches the (public) repo. Add it in Streamlit
+    Community Cloud under App settings -> Secrets:
+        gmail_user = "your_sending_address@gmail.com"
+        gmail_app_password = "xxxx xxxx xxxx xxxx"
+    The sending Gmail account needs an App Password (Google Account ->
+    Security -> 2-Step Verification -> App passwords) -- a regular account
+    password will not work. Until secrets are set, RSVPs still show a
+    friendly confirmation to the guest, they just aren't emailed.
 """
 
 import json
+import smtplib
 from datetime import date, datetime
+from email.mime.text import MIMEText
 from pathlib import Path
 
 import requests
@@ -31,6 +45,12 @@ MESSAGE = (
     "You make every day brighter. We love watching you grow, explore, "
     "and discover the world. Happy 2nd Birthday, little one!"
 )
+
+# ---------- Party details -- fill these in ----------
+PARTY_TIME = "TIME TBD"            # e.g. "2:00 PM - 4:00 PM"
+PARTY_LOCATION = "LOCATION TBD"    # e.g. "123 Maple St, Springfield"
+RSVP_BY = date(2026, 11, 8)        # ask guests to respond by this date
+RSVP_TO_EMAIL = "ledererkristoph@gmail.com"
 
 # file name -> (optional URL fallback, emoji fallback)
 ANIMATIONS = {
@@ -149,6 +169,67 @@ def ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
+def send_rsvp_email(name: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
+    """Email one RSVP to RSVP_TO_EMAIL via Gmail SMTP.
+
+    Returns (sent, status) where status is "ok", "not_configured" (no
+    secrets set yet -- not an error, just not wired up), or an error
+    message string.
+    """
+    gmail_user = st.secrets.get("gmail_user")
+    gmail_app_password = st.secrets.get("gmail_app_password")
+    if not gmail_user or not gmail_app_password:
+        return False, "not_configured"
+
+    body = (
+        f"RSVP for {CHILD_NAME}'s {ordinal(AGE)} birthday party\n\n"
+        f"Name: {name}\n"
+        f"Attending: {attending}\n"
+        f"Total guests (incl. themselves): {guest_count}\n"
+        f"Notes: {notes or '-'}\n"
+    )
+    msg = MIMEText(body)
+    msg["Subject"] = f"RSVP from {name} -- {CHILD_NAME}'s birthday"
+    msg["From"] = gmail_user
+    msg["To"] = RSVP_TO_EMAIL
+
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
+            server.login(gmail_user, gmail_app_password)
+            server.sendmail(gmail_user, [RSVP_TO_EMAIL], msg.as_string())
+        return True, "ok"
+    except Exception as exc:  # noqa: BLE001 -- surface to the admin, not the guest
+        return False, str(exc)
+
+
+@st.dialog("RSVP 💌")
+def rsvp_dialog():
+    st.write(f"Let us know if you can make it to {CHILD_NAME}'s party!")
+    with st.form("rsvp_form", clear_on_submit=False):
+        name = st.text_input("Your name")
+        attending = st.radio(
+            "Will you be there?",
+            ["Yes, can't wait! 🎉", "So sorry, can't make it", "Not sure yet"],
+        )
+        guest_count = st.number_input(
+            "Total guests, including you", min_value=1, max_value=20, value=1, step=1
+        )
+        notes = st.text_area("Anything we should know? (allergies, well wishes, etc.)", height=80)
+        submitted = st.form_submit_button("Send RSVP", use_container_width=True)
+
+    if submitted:
+        if not name.strip():
+            st.error("Please enter your name.")
+            return
+        sent, status = send_rsvp_email(name.strip(), attending, int(guest_count), notes.strip())
+        if sent:
+            st.success("Thank you! Your RSVP is on its way to us. 🎈")
+        elif status == "not_configured":
+            st.info("Thanks, got it! (Email delivery isn't set up on this deployment yet.)")
+        else:
+            st.warning("Thanks! We saved your response, but couldn't email it just now -- please also text or call us.")
+
+
 PHOTO_PATH = Path(__file__).parent / "photos" / "slide.jpg"
 
 # ---------- Header ----------
@@ -166,8 +247,30 @@ if PHOTO_PATH.exists():
     )
 
 st.markdown(
-    f"<p class='subtitle'>Celebrating your {ordinal(AGE)} birthday · "
-    f"{BIRTHDAY.strftime('%B %d, %Y').replace(' 0', ' ')}</p>",
+    f"<p class='subtitle'>You're invited to celebrate his {ordinal(AGE)} birthday!</p>",
+    unsafe_allow_html=True,
+)
+
+# ---------- Invitation details ----------
+party_date_str = BIRTHDAY.strftime("%A, %B %d, %Y").replace(" 0", " ")
+st.markdown(
+    f"""<div class='card'>
+    Please join us as {CHILD_NAME} turns {AGE}!<br><br>
+    📅 {party_date_str}<br>
+    🕒 {PARTY_TIME}<br>
+    📍 {PARTY_LOCATION}
+    </div>""",
+    unsafe_allow_html=True,
+)
+st.write("")
+
+c1, c2, c3 = st.columns([1, 2, 1])
+with c2:
+    if st.button("💌 RSVP Now", use_container_width=True):
+        rsvp_dialog()
+st.markdown(
+    f"<p class='subtitle' style='font-size:0.9rem; margin-top:0.5em;'>"
+    f"Please respond by {RSVP_BY.strftime('%B %d').replace(' 0', ' ')}</p>",
     unsafe_allow_html=True,
 )
 
