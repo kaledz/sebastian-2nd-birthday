@@ -27,7 +27,7 @@ RSVP emails:
 
 import json
 import smtplib
-from datetime import date, datetime
+from datetime import date
 from email.mime.text import MIMEText
 from pathlib import Path
 
@@ -39,16 +39,16 @@ from streamlit_lottie import st_lottie
 CHILD_NAME = "Sebastian"          # e.g. "Leo"
 BIRTHDAY = date(2026, 11, 15)
 AGE = 2
-FROM_LINE = "Love always, Mom & Dad"
 MESSAGE = (
     "Two years of giggles, hugs, wobbly first steps, and a whole lot of joy. "
     "You make every day brighter. We love watching you grow, explore, "
     "and discover the world. Happy 2nd Birthday, little one!"
 )
 
-# ---------- Party details -- fill these in ----------
-PARTY_TIME = "TIME TBD"            # e.g. "2:00 PM - 4:00 PM"
-PARTY_LOCATION = "LOCATION TBD"    # e.g. "123 Maple St, Springfield"
+# ---------- Party details ----------
+PARTY_TIME = "1:00 PM - 3:00 PM"
+PARTY_LOCATION = "157 Olympic Drive, Stafford, VA 22554"
+PARTY_MAPS_URL = "https://www.google.com/maps/search/?api=1&query=" + PARTY_LOCATION.replace(" ", "+")
 RSVP_BY = date(2026, 11, 8)        # ask guests to respond by this date
 RSVP_TO_EMAIL = "ledererkristoph@gmail.com"
 
@@ -169,37 +169,61 @@ def ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-def send_rsvp_email(name: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
-    """Email one RSVP to RSVP_TO_EMAIL via Gmail SMTP.
-
-    Returns (sent, status) where status is "ok", "not_configured" (no
-    secrets set yet -- not an error, just not wired up), or an error
-    message string.
-    """
+def _smtp_send(to_email: str, subject: str, body: str, html: bool = False) -> tuple[bool, str]:
     gmail_user = st.secrets.get("gmail_user")
     gmail_app_password = st.secrets.get("gmail_app_password")
     if not gmail_user or not gmail_app_password:
         return False, "not_configured"
 
-    body = (
-        f"RSVP for {CHILD_NAME}'s {ordinal(AGE)} birthday party\n\n"
-        f"Name: {name}\n"
-        f"Attending: {attending}\n"
-        f"Total guests (incl. themselves): {guest_count}\n"
-        f"Notes: {notes or '-'}\n"
-    )
-    msg = MIMEText(body)
-    msg["Subject"] = f"RSVP from {name} -- {CHILD_NAME}'s birthday"
+    msg = MIMEText(body, "html" if html else "plain")
+    msg["Subject"] = subject
     msg["From"] = gmail_user
-    msg["To"] = RSVP_TO_EMAIL
+    msg["To"] = to_email
 
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
             server.login(gmail_user, gmail_app_password)
-            server.sendmail(gmail_user, [RSVP_TO_EMAIL], msg.as_string())
+            server.sendmail(gmail_user, [to_email], msg.as_string())
         return True, "ok"
     except Exception as exc:  # noqa: BLE001 -- surface to the admin, not the guest
         return False, str(exc)
+
+
+def send_rsvp_email(name: str, email: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
+    """Notify the host (RSVP_TO_EMAIL) of one RSVP. See _smtp_send for the
+    (sent, status) return shape."""
+    body = (
+        f"RSVP for {CHILD_NAME}'s {ordinal(AGE)} birthday party\n\n"
+        f"Name: {name}\n"
+        f"Email: {email or '-'}\n"
+        f"Attending: {attending}\n"
+        f"Total guests (incl. themselves): {guest_count}\n"
+        f"Notes: {notes or '-'}\n"
+    )
+    return _smtp_send(RSVP_TO_EMAIL, f"RSVP from {name} -- {CHILD_NAME}'s birthday", body)
+
+
+def send_guest_confirmation(guest_email: str, name: str, attending: str) -> tuple[bool, str]:
+    """Confirmation back to the guest with the party details and a Google
+    Maps link, if they're attending."""
+    if "can't make it" in attending.lower():
+        body = (
+            f"<p>Hi {name},</p>"
+            f"<p>Thanks for letting us know -- we'll miss you at {CHILD_NAME}'s party, "
+            f"but we appreciate the RSVP!</p>"
+        )
+    else:
+        party_date_str = BIRTHDAY.strftime("%A, %B %d, %Y").replace(" 0", " ")
+        body = (
+            f"<p>Hi {name},</p>"
+            f"<p>Thanks for your RSVP to {CHILD_NAME}'s {ordinal(AGE)} birthday party! "
+            f"Here are the details:</p>"
+            f"<p>📅 {party_date_str}<br>"
+            f"🕒 {PARTY_TIME}<br>"
+            f"📍 <a href='{PARTY_MAPS_URL}'>{PARTY_LOCATION}</a></p>"
+            f"<p>See you there!</p>"
+        )
+    return _smtp_send(guest_email, f"RSVP confirmed -- {CHILD_NAME}'s birthday party", body, html=True)
 
 
 @st.dialog("RSVP 💌")
@@ -207,6 +231,7 @@ def rsvp_dialog():
     st.write(f"Let us know if you can make it to {CHILD_NAME}'s party!")
     with st.form("rsvp_form", clear_on_submit=False):
         name = st.text_input("Your name")
+        email = st.text_input("Your email (for a confirmation with directions)")
         attending = st.radio(
             "Will you be there?",
             ["Yes, can't wait! 🎉", "So sorry, can't make it", "Not sure yet"],
@@ -221,13 +246,22 @@ def rsvp_dialog():
         if not name.strip():
             st.error("Please enter your name.")
             return
-        sent, status = send_rsvp_email(name.strip(), attending, int(guest_count), notes.strip())
+        name, email, notes = name.strip(), email.strip(), notes.strip()
+
+        sent, status = send_rsvp_email(name, email, attending, int(guest_count), notes)
         if sent:
             st.success("Thank you! Your RSVP is on its way to us. 🎈")
         elif status == "not_configured":
             st.info("Thanks, got it! (Email delivery isn't set up on this deployment yet.)")
         else:
             st.warning("Thanks! We saved your response, but couldn't email it just now -- please also text or call us.")
+
+        if email:
+            conf_sent, conf_status = send_guest_confirmation(email, name, attending)
+            if conf_sent:
+                st.success("A confirmation with directions is on its way to your inbox. 📬")
+            elif conf_status != "not_configured":
+                st.caption("(Couldn't send you a confirmation email -- not a problem, we've still got your RSVP.)")
 
 
 PHOTO_PATH = Path(__file__).parent / "photos" / "slide.jpg"
@@ -294,7 +328,6 @@ with col2:
 
 # ---------- Message ----------
 st.markdown(f"<div class='card'>{MESSAGE}</div>", unsafe_allow_html=True)
-st.markdown(f"<p class='signoff'>{FROM_LINE}</p>", unsafe_allow_html=True)
 st.write("")
 
 # ---------- Fun facts about turning two ----------
@@ -305,9 +338,10 @@ with st.expander("🌟 Things we love about you at 2"):
         - How you say "more!" at snack time 🍪
         - Dancing the second music comes on 🎶
         - Your hugs, which fix everything 🤗
+        - How you say "WOW" at absolutely everything 😮
+        - Your crazy opening and closing of every cabinet in the house 🚪
         """
     )
-    st.caption("Edit this list in app.py to make it yours.")
 
 # ---------- Celebrate button ----------
 st.write("")
@@ -323,6 +357,3 @@ if st.session_state.get("celebrated"):
         f"<p class='title' style='font-size:2rem'>Hip hip hooray for {CHILD_NAME}! 🥳</p>",
         unsafe_allow_html=True,
     )
-
-st.write("")
-st.caption(f"Made with love on {datetime.now().strftime('%B %d, %Y')}")
