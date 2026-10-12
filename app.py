@@ -12,34 +12,45 @@ Animations:
     names in ANIMATIONS below. Any that are missing fall back to an emoji,
     so the card works even before you add them.
 
-RSVPs -- zero setup required:
-    Every RSVP is saved to rsvps.json next to this file and shown on the
-    "View RSVPs" page in the sidebar nav, gated by ADMIN_PASSCODE below
-    (change it to whatever you like -- it's a plain constant, not a
-    secret you have to configure anywhere). Nothing to sign up for,
-    nothing to subscribe to -- just open the app and check that page.
+RSVPs:
+    Every RSVP is always saved to rsvps.json next to this file and shown
+    on the "View RSVPs" sidebar panel, gated by ADMIN_PASSCODE below (a
+    plain constant -- change it to whatever you like, no external secret
+    needed). That part needs zero setup and always works.
 
     Caveat: Streamlit Community Cloud's filesystem is ephemeral -- it
     survives fine while the app is just running/sleeping, but a fresh
     deploy (pushing new code) wipes it. Fine for a one-off party page;
     don't rely on it as permanent storage.
 
-    Optional bonus (skip entirely if you don't want it): a live push
-    notification on your phone via ntfy.sh (https://ntfy.sh) the moment
-    someone RSVPs, on top of the saved list above. Free, no signup, no
-    account, no API key -- a "topic" is just a name you make up (anyone
-    who knows it can publish/subscribe, so treat it like a password).
+    Email notification via Brevo's free transactional-email API (300/day,
+    no domain needed, no Gmail/App Password) -- optional but recommended,
+    see https://www.brevo.com:
+      1. Sign up free, then Settings -> Senders, Domains & Dedicated IPs
+         -> Senders -> add the address you want these emails to come
+         FROM, and verify it with the 6-digit code Brevo emails there.
+      2. Settings -> SMTP & API -> API Keys -> generate a new key.
+      3. In Streamlit Community Cloud, App settings -> Secrets, add:
+            brevo_api_key = "xkeysib-..."
+            brevo_sender_email = "the address you verified in step 1"
+            rsvp_to_email = "the address that should receive RSVPs"
+    Leave these unset and RSVPs are still saved/viewable in-app, you just
+    won't get emailed.
+
+    Optional bonus on top of that: a live push notification on your phone
+    via ntfy.sh (https://ntfy.sh), free, no signup, no account, no API
+    key -- a "topic" is just a name you make up (treat it like a
+    password, since anyone who knows it can publish/subscribe to it).
       1. Make up a topic name, e.g. sebastian-rsvp-7f3ac91e2b.
       2. Install the ntfy app (iOS/Android) or open https://ntfy.sh/app in
          a browser, and subscribe to that exact topic name.
-      3. In Streamlit Community Cloud, App settings -> Secrets, add:
+      3. In Streamlit secrets, add:
             ntfy_topic = "sebastian-rsvp-7f3ac91e2b"
-    .streamlit/secrets.toml is gitignored so this never reaches the
-    (public) repo. Leave it unset and this step simply never fires.
 
-    Guests never need an email either: the party date/time/address and a
-    Google Maps link are shown directly in the app right after they
-    submit.
+    .streamlit/secrets.toml is gitignored so none of this reaches the
+    (public) repo. Guests never need an email: the party date/time/
+    address and a Google Maps link are shown directly in the app right
+    after they submit.
 """
 
 import json
@@ -216,6 +227,50 @@ def notify_host_push(name: str, attending: str, guest_count: int, notes: str) ->
         return False, str(exc)
 
 
+def notify_host_email(name: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
+    """Email one RSVP to the host via Brevo's free transactional-email API.
+    No Gmail/SMTP/App Password involved -- Brevo just needs a one-time-
+    verified sender address and an API key (see module docstring).
+
+    Returns (sent, status) -- same shape as notify_host_push.
+    """
+    api_key = st.secrets.get("brevo_api_key")
+    sender_email = st.secrets.get("brevo_sender_email")
+    to_email = st.secrets.get("rsvp_to_email")
+    if not api_key or not sender_email or not to_email:
+        return False, "not_configured"
+
+    body = (
+        f"RSVP for {CHILD_NAME}'s {ordinal(AGE)} birthday party\n\n"
+        f"Name: {name}\n"
+        f"Attending: {attending}\n"
+        f"Total guests (incl. themselves): {guest_count}\n"
+        f"Notes: {notes or '-'}\n"
+    )
+    payload = {
+        "sender": {"email": sender_email},
+        "to": [{"email": to_email}],
+        "subject": f"RSVP from {name} -- {CHILD_NAME}'s birthday",
+        "textContent": body,
+    }
+    try:
+        r = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key": api_key,
+                "accept": "application/json",
+                "content-type": "application/json",
+            },
+            json=payload,
+            timeout=10,
+        )
+        if r.status_code in (200, 201):
+            return True, "ok"
+        return False, f"Brevo {r.status_code}: {r.text[:200]}"
+    except requests.RequestException as exc:
+        return False, str(exc)
+
+
 def load_rsvps() -> list[dict]:
     if not RSVPS_FILE.exists():
         return []
@@ -262,6 +317,7 @@ def rsvp_dialog():
 
         save_rsvp(name, attending, int(guest_count), notes)
         notify_host_push(name, attending, int(guest_count), notes)
+        notify_host_email(name, attending, int(guest_count), notes)
         st.success("Thank you! We've got your RSVP. 🎈")
 
         if "can't make it" not in attending.lower():
