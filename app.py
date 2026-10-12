@@ -12,29 +12,38 @@ Animations:
     names in ANIMATIONS below. Any that are missing fall back to an emoji,
     so the card works even before you add them.
 
-RSVP notifications:
-    No email service at all -- RSVPs push a notification to the host via
-    ntfy.sh (https://ntfy.sh), a free notification service with no signup,
-    no account, no API key. A "topic" is just a name you make up; anyone
-    who knows it can publish or subscribe to it, so it acts like a shared
-    password -- pick something long and random, not "sebastian-birthday".
-    Setup:
+RSVPs -- zero setup required:
+    Every RSVP is saved to rsvps.json next to this file and shown on the
+    "View RSVPs" page in the sidebar nav, gated by ADMIN_PASSCODE below
+    (change it to whatever you like -- it's a plain constant, not a
+    secret you have to configure anywhere). Nothing to sign up for,
+    nothing to subscribe to -- just open the app and check that page.
+
+    Caveat: Streamlit Community Cloud's filesystem is ephemeral -- it
+    survives fine while the app is just running/sleeping, but a fresh
+    deploy (pushing new code) wipes it. Fine for a one-off party page;
+    don't rely on it as permanent storage.
+
+    Optional bonus (skip entirely if you don't want it): a live push
+    notification on your phone via ntfy.sh (https://ntfy.sh) the moment
+    someone RSVPs, on top of the saved list above. Free, no signup, no
+    account, no API key -- a "topic" is just a name you make up (anyone
+    who knows it can publish/subscribe, so treat it like a password).
       1. Make up a topic name, e.g. sebastian-rsvp-7f3ac91e2b.
       2. Install the ntfy app (iOS/Android) or open https://ntfy.sh/app in
          a browser, and subscribe to that exact topic name.
       3. In Streamlit Community Cloud, App settings -> Secrets, add:
             ntfy_topic = "sebastian-rsvp-7f3ac91e2b"
     .streamlit/secrets.toml is gitignored so this never reaches the
-    (public) repo. Until the secret is set, RSVPs are still collected and
-    the guest still sees the full confirmation on screen -- the host just
-    won't get pushed a notification.
+    (public) repo. Leave it unset and this step simply never fires.
 
-    Guests never need an email: the party date/time/address and a Google
-    Maps link are shown directly in the app right after they submit.
+    Guests never need an email either: the party date/time/address and a
+    Google Maps link are shown directly in the app right after they
+    submit.
 """
 
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 import requests
@@ -56,6 +65,8 @@ PARTY_TIME = "1:00 PM - 3:00 PM"
 PARTY_LOCATION = "157 Olympic Drive, Stafford, VA 22554"
 PARTY_MAPS_URL = "https://www.google.com/maps/search/?api=1&query=" + PARTY_LOCATION.replace(" ", "+")
 RSVP_BY = date(2026, 11, 8)        # ask guests to respond by this date
+RSVPS_FILE = Path(__file__).parent / "rsvps.json"
+ADMIN_PASSCODE = "sebastian2"      # change to whatever you like -- see "View RSVPs" below
 
 # file name -> (optional URL fallback, emoji fallback)
 ANIMATIONS = {
@@ -174,7 +185,7 @@ def ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-def notify_host(name: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
+def notify_host_push(name: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
     """Push one RSVP to the host via ntfy.sh. No account/email anywhere --
     just a shared, hard-to-guess topic name (see the module docstring).
 
@@ -205,6 +216,29 @@ def notify_host(name: str, attending: str, guest_count: int, notes: str) -> tupl
         return False, str(exc)
 
 
+def load_rsvps() -> list[dict]:
+    if not RSVPS_FILE.exists():
+        return []
+    try:
+        return json.loads(RSVPS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+
+
+def save_rsvp(name: str, attending: str, guest_count: int, notes: str) -> None:
+    rsvps = load_rsvps()
+    rsvps.append(
+        {
+            "name": name,
+            "attending": attending,
+            "guest_count": guest_count,
+            "notes": notes,
+            "submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+    )
+    RSVPS_FILE.write_text(json.dumps(rsvps, indent=2), encoding="utf-8")
+
+
 @st.dialog("RSVP 💌")
 def rsvp_dialog():
     st.write(f"Let us know if you can make it to {CHILD_NAME}'s party!")
@@ -226,7 +260,8 @@ def rsvp_dialog():
             return
         name, notes = name.strip(), notes.strip()
 
-        notify_host(name, attending, int(guest_count), notes)
+        save_rsvp(name, attending, int(guest_count), notes)
+        notify_host_push(name, attending, int(guest_count), notes)
         st.success("Thank you! We've got your RSVP. 🎈")
 
         if "can't make it" not in attending.lower():
@@ -335,3 +370,25 @@ if st.session_state.get("celebrated"):
         f"<p class='title' style='font-size:2rem'>Hip hip hooray for {CHILD_NAME}! 🥳</p>",
         unsafe_allow_html=True,
     )
+
+# ---------- Host: View RSVPs (sidebar, passcode-gated) ----------
+with st.sidebar:
+    st.subheader("View RSVPs")
+    passcode = st.text_input("Passcode", type="password", key="admin_passcode")
+    if passcode == ADMIN_PASSCODE:
+        rsvps = load_rsvps()
+        if not rsvps:
+            st.caption("No RSVPs yet.")
+        else:
+            yes_count = sum(
+                r["guest_count"] for r in rsvps if "can't make it" not in r["attending"].lower()
+            )
+            st.metric("Total attending (incl. guests)", yes_count)
+            for r in reversed(rsvps):
+                st.write(f"**{r['name']}** -- {r['attending']}")
+                st.caption(
+                    f"{r['guest_count']} guest(s) · {r['submitted_at']}"
+                    + (f" · {r['notes']}" if r["notes"] else "")
+                )
+    elif passcode:
+        st.error("Wrong passcode.")
