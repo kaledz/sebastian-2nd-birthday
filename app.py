@@ -13,22 +13,23 @@ Animations:
     so the card works even before you add them.
 
 RSVP emails:
-    RSVPs are sent by Gmail SMTP using an App Password, read from Streamlit
-    secrets -- never hardcode it here, and .streamlit/secrets.toml is
-    gitignored so it never reaches the (public) repo. Add it in Streamlit
-    Community Cloud under App settings -> Secrets:
-        gmail_user = "your_sending_address@gmail.com"
-        gmail_app_password = "xxxx xxxx xxxx xxxx"
-    The sending Gmail account needs an App Password (Google Account ->
-    Security -> 2-Step Verification -> App passwords) -- a regular account
-    password will not work. Until secrets are set, RSVPs still show a
-    friendly confirmation to the guest, they just aren't emailed.
+    RSVPs are sent via Brevo's free transactional-email API (no Gmail App
+    Password, no SMTP, no domain needed -- 300 emails/day free). Setup:
+      1. Sign up free at https://www.brevo.com
+      2. Settings -> Senders, Domains & Dedicated IPs -> Senders -> add
+         the address you want emails to come FROM, and verify it with the
+         6-digit code Brevo emails to that address (no domain required).
+      3. Settings -> SMTP & API -> API Keys -> generate a new key.
+      4. In Streamlit Community Cloud, App settings -> Secrets, add:
+            brevo_api_key = "xkeysib-..."
+            brevo_sender_email = "the address you verified in step 2"
+    .streamlit/secrets.toml is gitignored so none of this reaches the
+    (public) repo. Until secrets are set, RSVPs still show a friendly
+    confirmation to the guest, they just aren't emailed.
 """
 
 import json
-import smtplib
 from datetime import date
-from email.mime.text import MIMEText
 from pathlib import Path
 
 import requests
@@ -169,28 +170,44 @@ def ordinal(n: int) -> str:
     return f"{n}{suffix}"
 
 
-def _smtp_send(to_email: str, subject: str, body: str, html: bool = False) -> tuple[bool, str]:
-    gmail_user = st.secrets.get("gmail_user")
-    gmail_app_password = st.secrets.get("gmail_app_password")
-    if not gmail_user or not gmail_app_password:
+def _brevo_send(to_email: str, subject: str, body: str, html: bool = False) -> tuple[bool, str]:
+    """Send one email via Brevo's transactional-email HTTP API.
+
+    Returns (sent, status) where status is "ok", "not_configured" (no
+    secrets set yet -- not an error, just not wired up), or an error
+    message string.
+    """
+    api_key = st.secrets.get("brevo_api_key")
+    sender_email = st.secrets.get("brevo_sender_email")
+    if not api_key or not sender_email:
         return False, "not_configured"
 
-    msg = MIMEText(body, "html" if html else "plain")
-    msg["Subject"] = subject
-    msg["From"] = gmail_user
-    msg["To"] = to_email
-
+    payload = {
+        "sender": {"email": sender_email},
+        "to": [{"email": to_email}],
+        "subject": subject,
+        ("htmlContent" if html else "textContent"): body,
+    }
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465, timeout=10) as server:
-            server.login(gmail_user, gmail_app_password)
-            server.sendmail(gmail_user, [to_email], msg.as_string())
-        return True, "ok"
-    except Exception as exc:  # noqa: BLE001 -- surface to the admin, not the guest
+        r = requests.post(
+            "https://api.brevo.com/v3/smtp/email",
+            headers={
+                "api-key": api_key,
+                "accept": "application/json",
+                "content-type": "application/json",
+            },
+            json=payload,
+            timeout=10,
+        )
+        if r.status_code in (200, 201):
+            return True, "ok"
+        return False, f"Brevo {r.status_code}: {r.text[:200]}"
+    except requests.RequestException as exc:
         return False, str(exc)
 
 
 def send_rsvp_email(name: str, email: str, attending: str, guest_count: int, notes: str) -> tuple[bool, str]:
-    """Notify the host (RSVP_TO_EMAIL) of one RSVP. See _smtp_send for the
+    """Notify the host (RSVP_TO_EMAIL) of one RSVP. See _brevo_send for the
     (sent, status) return shape."""
     body = (
         f"RSVP for {CHILD_NAME}'s {ordinal(AGE)} birthday party\n\n"
@@ -200,7 +217,7 @@ def send_rsvp_email(name: str, email: str, attending: str, guest_count: int, not
         f"Total guests (incl. themselves): {guest_count}\n"
         f"Notes: {notes or '-'}\n"
     )
-    return _smtp_send(RSVP_TO_EMAIL, f"RSVP from {name} -- {CHILD_NAME}'s birthday", body)
+    return _brevo_send(RSVP_TO_EMAIL, f"RSVP from {name} -- {CHILD_NAME}'s birthday", body)
 
 
 def send_guest_confirmation(guest_email: str, name: str, attending: str) -> tuple[bool, str]:
@@ -223,7 +240,7 @@ def send_guest_confirmation(guest_email: str, name: str, attending: str) -> tupl
             f"📍 <a href='{PARTY_MAPS_URL}'>{PARTY_LOCATION}</a></p>"
             f"<p>See you there!</p>"
         )
-    return _smtp_send(guest_email, f"RSVP confirmed -- {CHILD_NAME}'s birthday party", body, html=True)
+    return _brevo_send(guest_email, f"RSVP confirmed -- {CHILD_NAME}'s birthday party", body, html=True)
 
 
 @st.dialog("RSVP 💌")
